@@ -22,76 +22,72 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'Message too long' }, { status: 400, headers: CORS_HEADERS });
     }
 
-    const YANDEX_API_KEY = process.env.YANDEX_API_KEY;
-    const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID;
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-    if (!YANDEX_API_KEY || !YANDEX_FOLDER_ID) {
+    if (!OPENAI_API_KEY) {
       return Response.json({ error: 'Server configuration error' }, { status: 500, headers: CORS_HEADERS });
     }
 
-    const systemPrompt = `Ту Tuti ҳастӣ — муаллими забони русӣ барои тоҷикон. 
+    const systemPrompt = `You are Tuti 🦜 — a friendly AI language teacher for people from Tajikistan learning Russian and English.
 
-Қоидаҳои ту:
-1. Ту бо забони тоҷикӣ ва русӣ гап мезанӣ
-2. Ту ба корбар кӯмак мекунӣ, ки русӣ гап занад
-3. Агар корбар хато кунад — боадабона ислоҳ кун ва дуруст нишон деҳ
-4. Ҷавобҳои кӯтоҳ деҳ (2-3 ҷумла максимум)
-5. Баъди ислоҳ, мисоли дуруст нишон деҳ
-6. Гоҳ-гоҳ калимаи нав ёд деҳ
-7. Дӯстона ва шавқовар бош — ту тӯтӣ ҳастӣ! 🦜
-8. Агар корбар бо тоҷикӣ нависад — ба русӣ тарҷума кун ва ёд деҳ
-9. Агар корбар бо русӣ нависад — санҷида, ислоҳ кун ва офарин гӯй
+RULES:
+- Keep answers SHORT (max 3-4 sentences)
+- If user writes in Russian — check for mistakes, correct them kindly, explain in Tajik
+- If user writes in Tajik — translate to Russian and teach the phrase
+- If user writes in English — help them practice, explain in Tajik
 
-${scenario ? `Ҳолати ҷорӣ: ${scenario}. Суҳбатро дар ин мавзӯъ идома деҳ.` : ''}
+RESPONSE FORMAT:
+🇷🇺 [Russian text / correction]
+🇹🇯 [Tajik translation/explanation]  
+💡 [Tip or new word]
 
-Ҳамеша кӯтоҳ ва фаҳмо ҷавоб деҳ.`;
+EXAMPLE:
+User: "Привет как дила"
+Tuti:
+🇷🇺 Привет! Почти правильно! Правильно: "Как делА?" (не "дила")
+🇹🇯 Салом! Тақрибан дуруст! Дурусташ: "Как делА?"
+💡 "Как дела?" = Чӣ ҳолед?
 
-    const messages: { role: string; text: string }[] = [
-      { role: 'system', text: systemPrompt },
+Be friendly, encouraging, use emoji. You are a parrot teacher! 🦜
+Always respond in this format. Never write long paragraphs.${scenario ? `\n\nCurrent scenario: ${scenario}. Keep the conversation on this topic.` : ''}`;
+
+    const openaiMessages: { role: string; content: string }[] = [
+      { role: 'system', content: systemPrompt },
     ];
 
     if (conversationHistory && Array.isArray(conversationHistory)) {
       conversationHistory.slice(-10).forEach((msg: { role: string; text: string }) => {
-        messages.push({
+        openaiMessages.push({
           role: msg.role === 'user' ? 'user' : 'assistant',
-          text: msg.text,
+          content: msg.text,
         });
       });
     }
 
-    messages.push({ role: 'user', text: message });
+    openaiMessages.push({ role: 'user', content: message });
 
-    const yandexResponse = await fetch(
-      'https://llm.api.cloud.yandex.net/foundationModels/v1/completion',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Api-Key ${YANDEX_API_KEY}`,
-          'x-folder-id': YANDEX_FOLDER_ID,
-        },
-        body: JSON.stringify({
-          modelUri: `gpt://${YANDEX_FOLDER_ID}/yandexgpt-lite`,
-          completionOptions: {
-            stream: false,
-            temperature: 0.7,
-            maxTokens: 200,
-          },
-          messages,
-        }),
-      }
-    );
+    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: openaiMessages,
+        max_tokens: 300,
+        temperature: 0.7,
+      }),
+    });
 
-    if (!yandexResponse.ok) {
-      const errorText = await yandexResponse.text();
-      console.error('YandexGPT error:', errorText);
+    if (!openaiResponse.ok) {
+      const errorText = await openaiResponse.text();
+      console.error('OpenAI error:', errorText);
       return Response.json({ error: 'AI service error' }, { status: 502, headers: CORS_HEADERS });
     }
 
-    const data = await yandexResponse.json();
-    const aiResponse =
-      data.result?.alternatives?.[0]?.message?.text ||
-      'Бубахшед, ман фаҳмида натавонистам. Боз як бор гӯед?';
+    const data = await openaiResponse.json();
+    const aiResponse = data.choices?.[0]?.message?.content || 'Бубахшед, боз кӯшиш кунед.';
 
     return Response.json({ response: aiResponse, success: true }, { headers: CORS_HEADERS });
   } catch (error) {
