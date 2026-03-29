@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         model: 'tts-1',
-        voice: 'nova',
+        voice: 'cove',
         input: text,
         response_format: 'mp3',
         speed: 0.9,
